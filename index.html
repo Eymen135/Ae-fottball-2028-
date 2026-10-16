@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>eFootball 3D Online Mobile</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; font-family: 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #fff; }
+    #canvas-container { width: 100vw; height: 100vh; position: absolute; top:0; left:0; z-index: 1; }
+    .glass { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); }
+    .btn-action { active: scale-95; transition: transform 0.08s, background-color 0.15s; }
+  </style>
+</head>
+<body class="bg-slate-950 text-white overflow-hidden">
+
+  <!-- 3D Canvas -->
+  <div id="canvas-container"></div>
+
+  <!-- LOBBY & MENU OVERLAY -->
+  <div id="ui-menu" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-4">
+    <div class="glass max-w-lg w-full p-6 rounded-3xl shadow-2xl text-center space-y-6 border border-indigo-500/30">
+      
+      <div class="space-y-2">
+        <h1 class="text-4xl font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-yellow-400 via-emerald-400 to-cyan-400">
+          eFOOTBALL 3D
+        </h1>
+        <p class="text-xs text-slate-400 tracking-widest uppercase">Gerçek Zamanlı Online Futbol</p>
+      </div>
+
+      <!-- Takım Seçimi -->
+      <div class="space-y-2 text-left">
+        <label class="text-xs font-semibold text-slate-300">TAKIMINI SEÇ</label>
+        <div class="grid grid-cols-2 gap-2" id="team-selector">
+          <button onclick="selectTeam('GS')" id="btn-GS" class="team-btn p-3 rounded-xl border border-yellow-500/50 bg-yellow-500/10 text-yellow-300 font-bold flex items-center justify-between">Galatasaray <span class="text-xs text-yellow-400">🟡🔴</span></button>
+          <button onclick="selectTeam('FB')" id="btn-FB" class="team-btn p-3 rounded-xl border border-slate-700 bg-slate-800/50 text-slate-300 font-bold flex items-center justify-between">Fenerbahçe <span class="text-xs text-yellow-300">🟡🔵</span></button>
+          <button onclick="selectTeam('BJK')" id="btn-BJK" class="team-btn p-3 rounded-xl border border-slate-700 bg-slate-800/50 text-slate-300 font-bold flex items-center justify-between">Beşiktaş <span class="text-xs text-white">⚪⚫</span></button>
+          <button onclick="selectTeam('RM')" id="btn-RM" class="team-btn p-3 rounded-xl border border-slate-700 bg-slate-800/50 text-slate-300 font-bold flex items-center justify-between">Real Madrid <span class="text-xs text-blue-300">⚪👑</span></button>
+        </div>
+      </div>
+
+      <!-- Online Oda Seçenekleri -->
+      <div class="space-y-3 pt-2">
+        <button onclick="createRoom()" class="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 font-extrabold text-lg shadow-lg shadow-emerald-500/20 active:scale-95 transition">
+          ODA OLUŞTUR (EV SAHİBİ)
+        </button>
+
+        <div class="flex gap-2">
+          <input type="text" id="room-code-input" placeholder="6 Haneli Oda Kodu" maxlength="6" class="w-2/3 px-4 py-3 rounded-xl bg-slate-900/80 border border-slate-700 text-center font-mono text-lg font-bold tracking-widest text-emerald-400 uppercase focus:outline-none focus:border-emerald-500">
+          <button onclick="joinRoom()" class="w-1/3 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold text-sm active:scale-95 transition">
+            KATIL
+          </button>
+        </div>
+      </div>
+
+      <!-- Durum Mesajı -->
+      <div id="status-msg" class="text-sm font-medium text-amber-400 min-h-[20px]">
+        Takımını seç ve bir oda oluştur veya koda katıl.
+      </div>
+    </div>
+  </div>
+
+  <!-- GAME HUD (MATCH SCORE & TIMER) -->
+  <div id="ui-hud" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-40 flex items-center glass px-6 py-2 rounded-2xl shadow-xl border border-white/20 font-bold">
+    <div class="flex items-center space-x-3 text-sm md:text-base">
+      <span id="hud-p1-name" class="text-emerald-400 font-extrabold">EV SAHİBİ</span>
+      <span id="hud-score" class="bg-black/60 px-3 py-1 rounded-lg text-yellow-400 font-mono text-lg">0 - 0</span>
+      <span id="hud-p2-name" class="text-cyan-400 font-extrabold">RAKİP</span>
+    </div>
+    <div class="ml-4 pl-4 border-l border-white/20 text-xs font-mono text-slate-300" id="hud-timer">00:00</div>
+  </div>
+
+  <!-- RADAR MINIMAP -->
+  <div id="ui-radar" class="hidden absolute top-4 right-4 z-40 w-28 h-20 bg-slate-950/80 rounded-xl border border-white/20 p-1">
+    <canvas id="radar-canvas" class="w-full h-full"></canvas>
+  </div>
+
+  <!-- MOBILE TOUCH CONTROLS -->
+  <div id="ui-controls" class="hidden absolute inset-0 z-40 pointer-events-none">
+    <!-- Joystick Container (Left) -->
+    <div id="joystick-zone" class="absolute bottom-6 left-6 w-36 h-36 rounded-full bg-white/5 border border-white/20 pointer-events-auto flex items-center justify-center touch-none">
+      <div id="joystick-stick" class="w-14 h-14 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 shadow-lg transform translate-x-0 translate-y-0 transition-transform duration-75"></div>
+    </div>
+
+    <!-- Action Buttons (Right) -->
+    <div class="absolute bottom-6 right-6 grid grid-cols-2 gap-3 pointer-events-auto">
+      <button id="btn-pass" class="btn-action w-16 h-16 rounded-full bg-blue-600/80 border border-blue-400/50 text-white font-bold text-xs flex flex-col items-center justify-center shadow-lg active:bg-blue-500">
+        <span>PAS</span>
+      </button>
+      <button id="btn-through" class="btn-action w-16 h-16 rounded-full bg-teal-600/80 border border-teal-400/50 text-white font-bold text-xs flex flex-col items-center justify-center shadow-lg active:bg-teal-500">
+        <span>ARAPAS</span>
+      </button>
+      <button id="btn-slide" class="btn-action w-16 h-16 rounded-full bg-amber-600/80 border border-amber-400/50 text-white font-bold text-xs flex flex-col items-center justify-center shadow-lg active:bg-amber-500">
+        <span>KAYMA</span>
+      </button>
+      <button id="btn-shoot" class="btn-action w-16 h-16 rounded-full bg-rose-600/80 border border-rose-400/50 text-white font-bold text-xs flex flex-col items-center justify-center shadow-lg active:bg-rose-500">
+        <span>ŞUT</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- GOAL BANNER -->
+  <div id="goal-banner" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black/50 pointer-events-none">
+    <div class="text-6xl md:text-8xl font-black text-yellow-400 tracking-widest animate-bounce drop-shadow-[0_10px_10px_rgba(0,0,0,0.8)]">
+      GOOOOLLLL!!!
+    </div>
+  </div>
+
+  <script>
+    // --- FIREBASE PUBLIC INIT ---
+    const firebaseConfig = {
+      databaseURL: "https://efootball-3d-default-rtdb.firebaseio.com"
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // --- GAME VARIABLES ---
+    let selectedTeam = 'GS';
+    let roomCode = null;
+    let isHost = false;
+    let myPlayerRole = null; // 'P1' or 'P2'
+    let roomRef = null;
+
+    let scene, camera, renderer, world;
+    let pitchMesh, ballMesh, ballBody;
+    let playersP1 = [], playersP2 = [];
+    let activePlayerIdx = 0;
+    
+    let moveVector = { x: 0, z: 0 };
+    let matchScore = { p1: 0, p2: 0 };
+    let matchTime = 0;
+    let isGameRunning = false;
+
+    const TEAMS = {
+      GS: { name: 'Galatasaray', color: 0xa8111e, stripe: 0xf5a623 },
+      FB: { name: 'Fenerbahçe', color: 0x0a1e3f, stripe: 0xf8d117 },
+      BJK: { name: 'Beşiktaş', color: 0x111111, stripe: 0xffffff },
+      RM: { name: 'Real Madrid', color: 0xf0f0f0, stripe: 0x1b365d }
+    };
+
+    function selectTeam(code) {
+      selectedTeam = code;
+      document.querySelectorAll('.team-btn').forEach(b => {
+        b.classList.remove('border-yellow-500/50', 'bg-yellow-500/10', 'text-yellow-300');
+        b.classList.add('border-slate-700', 'bg-slate-800/50', 'text-slate-300');
+      });
+      const btn = document.getElementById('btn-' + code);
+      btn.classList.add('border-yellow-500/50', 'bg-yellow-500/10', 'text-yellow-300');
+    }
+
+    // --- MULTIPLAYER ROOM LOGIC ---
+    function createRoom() {
+      roomCode = Math.floor(100000 + Math.random() * 900000).toString();
+      isHost = true;
+      myPlayerRole = 'P1';
+
+      roomRef = db.ref('rooms/' + roomCode);
+      roomRef.set({
+        p1Team: selectedTeam,
+        p2Team: null,
+        status: 'waiting',
+        ballState: { x: 0, y: 0.5, z: 0 },
+        score: { p1: 0, p2: 0 }
+      });
+
+      document.getElementById('status-msg').innerText = "Oda Kodu: " + roomCode + " (Rakip Bekleniyor...)";
+      listenRoom();
+    }
+
+    function joinRoom() {
+      const code = document.getElementById('room-code-input').value.trim().toUpperCase();
+      if (code.length !== 6) {
+        alert("Lütfen 6 haneli oda kodunu girin!");
+        return;
+      }
+      roomCode = code;
+      isHost = false;
+      myPlayerRole = 'P2';
+
+      roomRef = db.ref('rooms/' + roomCode);
+      roomRef.get().then(snapshot => {
+        if (!snapshot.exists()) {
+          alert("Oda bulunamadı!");
+          return;
+        }
+        roomRef.update({
+          p2Team: selectedTeam,
+          status: 'playing'
+        });
+        listenRoom();
+      });
+    }
+
+    function listenRoom() {
+      roomRef.on('value', snapshot => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        if (data.status === 'playing' && !isGameRunning) {
+          startGame(data);
+        }
+
+        // Host updates non-host's entity positions
+        if (!isHost && data.p1Pos && data.ballState) {
+          syncGameFromHost(data);
+        }
+
+        if (isHost && data.p2Pos) {
+          syncP2FromClient(data.p2Pos);
+        }
+
+        if (data.score) {
+          matchScore = data.score;
+          document.getElementById('hud-score').innerText = `${matchScore.p1} - ${matchScore.p2}`;
+        }
+      });
+    }
+
+    // --- GAME ENGINE SETUP ---
+    function init3D() {
+      // Three.js Scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0f172a);
+
+      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+      // Cannon.js Physics
+      world = new CANNON.World();
+      world.gravity.set(0, -9.82, 0);
+
+      // Lights
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight.position.set(30, 50, 20);
+      dirLight.castShadow = true;
+      scene.add(dirLight);
+
+      // Stadium Ground / Pitch
+      const pitchGeo = new THREE.PlaneGeometry(60, 90);
+      const pitchMat = new THREE.MeshStandardMaterial({ color: 0x2e7d32, roughness: 0.6 });
+      pitchMesh = new THREE.Mesh(pitchGeo, pitchMat);
+      pitchMesh.rotation.x = -Math.PI / 2;
+      pitchMesh.receiveShadow = true;
+      scene.add(pitchMesh);
+
+      // Lines
+      const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff });
+      const borderGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-28, 0.05, -42), new THREE.Vector3(28, 0.05, -42),
+        new THREE.Vector3(28, 0.05, 42), new THREE.Vector3(-28, 0.05, 42),
+        new THREE.Vector3(-28, 0.05, -42)
+      ]);
+      scene.add(new THREE.Line(borderGeo, lineMat));
+
+      // Ball Physics & Mesh
+      const ballRadius = 0.4;
+      const ballGeo = new THREE.SphereGeometry(ballRadius, 32, 32);
+      const ballMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+      ballMesh = new THREE.Mesh(ballGeo, ballMat);
+      ballMesh.castShadow = true;
+      scene.add(ballMesh);
+
+      const ballBodyMat = new CANNON.Material();
+      ballBody = new CANNON.Body({ mass: 0.45, shape: new CANNON.Sphere(ballRadius), material: ballBodyMat });
+      ballBody.position.set(0, 2, 0);
+      ballBody.linearDamping = 0.3;
+      world.addBody(ballBody);
+
+      // Camera Offset
+      camera.position.set(0, 25, 35);
+      camera.lookAt(0, 0, 0);
+
+      setupTouchControls();
+    }
+
+    // Humanoid Player Creator
+    function createPlayerMesh(teamInfo) {
+      const group = new THREE.Group();
+
+      // Body (Jersey)
+      const bodyGeo = new THREE.CylinderGeometry(0.3, 0.25, 0.9, 16);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: teamInfo.color });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.position.y = 0.9;
+      group.add(body);
+
+      // Head & Face
+      const headGeo = new THREE.SphereGeometry(0.25, 16, 16);
+      const headMat = new THREE.MeshStandardMaterial({ color: 0xe0ac69 });
+      const head = new THREE.Mesh(headGeo, headMat);
+      head.position.y = 1.55;
+      group.add(head);
+
+      // Legs
+      const legGeo = new THREE.CylinderGeometry(0.1, 0.08, 0.7, 12);
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+      const leg1 = new THREE.Mesh(legGeo, legMat);
+      leg1.position.set(-0.15, 0.35, 0);
+      const leg2 = leg1.clone();
+      leg2.position.x = 0.15;
+      group.add(leg1);
+      group.add(leg2);
+
+      return group;
+    }
+
+    function startGame(data) {
+      document.getElementById('ui-menu').classList.add('hidden');
+      document.getElementById('ui-hud').classList.remove('hidden');
+      document.getElementById('ui-radar').classList.remove('hidden');
+      document.getElementById('ui-controls').classList.remove('hidden');
+
+      init3D();
+
+      const p1TeamInfo = TEAMS[data.p1Team] || TEAMS['GS'];
+      const p2TeamInfo = TEAMS[data.p2Team] || TEAMS['FB'];
+
+      document.getElementById('hud-p1-name').innerText = p1TeamInfo.name;
+      document.getElementById('hud-p2-name').innerText = p2TeamInfo.name;
+
+      // Spawn Team 1
+      for (let i = 0; i < 5; i++) {
+        const p = createPlayerMesh(p1TeamInfo);
+        p.position.set((i - 2) * 6, 0, 15);
+        scene.add(p);
+        playersP1.push(p);
+      }
+
+      // Spawn Team 2
+      for (let i = 0; i < 5; i++) {
+        const p = createPlayerMesh(p2TeamInfo);
+        p.position.set((i - 2) * 6, 0, -15);
+        p.rotation.y = Math.PI;
+        scene.add(p);
+        playersP2.push(p);
+      }
+
+      isGameRunning = true;
+      animate();
+    }
+
+    // --- CONTROLS & TOUCH ENGINE ---
+    function setupTouchControls() {
+      const zone = document.getElementById('joystick-zone');
+      const stick = document.getElementById('joystick-stick');
+      let touchId = null;
+
+      zone.addEventListener('touchstart', e => {
+        touchId = e.changedTouches[0].identifier;
+      });
+
+      window.addEventListener('touchmove', e => {
+        if (touchId === null) return;
+        for (let touch of e.changedTouches) {
+          if (touch.identifier === touchId) {
+            const rect = zone.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            
+            let dx = touch.clientX - centerX;
+            let dy = touch.clientY - centerY;
+            const dist = Math.hypot(dx, dy);
+            const maxDist = rect.width / 2;
+
+            if (dist > maxDist) {
+              dx = (dx / dist) * maxDist;
+              dy = (dy / dist) * maxDist;
+            }
+
+            stick.style.transform = `translate(${dx}px, ${dy}px)`;
+            moveVector.x = dx / maxDist;
+            moveVector.z = dy / maxDist;
+          }
+        }
+      });
+
+      window.addEventListener('touchend', e => {
+        for (let touch of e.changedTouches) {
+          if (touch.identifier === touchId) {
+            touchId = null;
+            stick.style.transform = `translate(0px, 0px)`;
+            moveVector = { x: 0, z: 0 };
+          }
+        }
+      });
+
+      // Actions
+      document.getElementById('btn-pass').onclick = performPass;
+      document.getElementById('btn-shoot').onclick = performShoot;
+    }
+
+    function performPass() {
+      ballBody.velocity.set(moveVector.x * 12, 1, moveVector.z * 12);
+    }
+
+    function performShoot() {
+      const forwardDir = myPlayerRole === 'P1' ? -1 : 1;
+      ballBody.velocity.set(moveVector.x * 15, 8, forwardDir * 25);
+    }
+
+    // --- GAME LOOP & SYNC ---
+    function animate() {
+      if (!isGameRunning) return;
+      requestAnimationFrame(animate);
+
+      world.step(1 / 60);
+
+      // Ball Sync
+      ballMesh.position.copy(ballBody.position);
+      ballMesh.quaternion.copy(ballBody.quaternion);
+
+      // Player Movement
+      const activeList = myPlayerRole === 'P1' ? playersP1 : playersP2;
+      const activePlayer = activeList[activePlayerIdx];
+
+      if (activePlayer) {
+        activePlayer.position.x += moveVector.x * 0.15;
+        activePlayer.position.z += moveVector.z * 0.15;
+
+        // Camera follow
+        camera.position.x = THREE.MathUtils.lerp(camera.position.x, activePlayer.position.x, 0.05);
+        camera.position.z = THREE.MathUtils.lerp(camera.position.z, activePlayer.position.z + 20, 0.05);
+        camera.lookAt(activePlayer.position);
+      }
+
+      // Sync via Firebase
+      if (isHost) {
+        const p1Positions = playersP1.map(p => ({ x: p.position.x, z: p.position.z }));
+        roomRef.child('p1Pos').set(p1Positions);
+        roomRef.child('ballState').set({ x: ballBody.position.x, y: ballBody.position.y, z: ballBody.position.z });
+      } else {
+        const p2Positions = playersP2.map(p => ({ x: p.position.x, z: p.position.z }));
+        roomRef.child('p2Pos').set(p2Positions);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    function syncGameFromHost(data) {
+      if (data.p1Pos) {
+        data.p1Pos.forEach((pos, idx) => {
+          if (playersP1[idx]) {
+            playersP1[idx].position.x = pos.x;
+            playersP1[idx].position.z = pos.z;
+          }
+        });
+      }
+      if (data.ballState) {
+        ballBody.position.set(data.ballState.x, data.ballState.y, data.ballState.z);
+      }
+    }
+
+    function syncP2FromClient(p2Pos) {
+      p2Pos.forEach((pos, idx) => {
+        if (playersP2[idx]) {
+          playersP2[idx].position.x = pos.x;
+          playersP2[idx].position.z = pos.z;
+        }
+      });
+    }
+
+    window.addEventListener('resize', () => {
+      if (camera && renderer) {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+    });
+  </script>
+</body>
+  </html>
